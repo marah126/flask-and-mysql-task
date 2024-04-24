@@ -3,6 +3,10 @@ from sqlalchemy import create_engine, Column, Integer, String, ForeignKey
 from sqlalchemy.orm import sessionmaker, relationship
 from sqlalchemy.ext.declarative import declarative_base
 from urllib.parse import quote_plus
+from flask_bcrypt import Bcrypt, generate_password_hash, check_password_hash
+from flask_login import LoginManager, login_user, UserMixin, login_required, logout_user
+import re
+
 
 user = 'root'
 password = 'Marah@2001'
@@ -22,7 +26,16 @@ engine = get_connection()
 Session = sessionmaker(bind=engine)
 Base = declarative_base()
 
-# Define ORM models for tables
+app.config["SECRET_KEY"] = "MarahD"
+
+
+class Auth(Base):
+    __tablename__ = 'auth'
+    id = Column(Integer, primary_key=True, autoincrement=True)  # Make id auto-incrementing
+    username = Column(String(100), unique=True, nullable=False)
+    password = Column(String(100), nullable=False)
+
+
 class Student(Base):
     __tablename__ = 'students'
 
@@ -51,6 +64,76 @@ class Course(Base):
 
     instructor = relationship("Instructor", back_populates="courses")
 
+
+#######################################################################################################
+
+login_manager = LoginManager()
+login_manager.init_app(app)
+
+@login_manager.user_loader
+# def load_user(username):
+#     user = auth.query.filter_by(username=username).first()
+
+    # return user
+
+
+#################### AUTH APIs ####################################
+@app.route('/signup', methods=["POST"])
+def register():
+    session = Session()
+
+    data = request.json
+    username = data['username']
+    password = data['password']
+    confirm = data['confirm']
+    if len(username) < 5: # check length of username
+        return jsonify({'error': 'username should be at least 5 characters long'})
+
+    elif password != confirm: # check if passwrod equal confirm
+        return jsonify({'error': 'password and confirm do not match'})
+
+    # check password strength
+    elif len(password) < 8 or re.search("[a-z]", password) is None or re.search("[A-Z]", password) is None or re.search(
+            "[0-9]", password) is None or re.search("[!@#$%^&*()_+=]", password) is None:
+        return jsonify({'error': 'password is not strong, it should be at least 8 characters and contain small letters, capital letters, numbers, and special characters'})
+
+    elif session.query(Auth).filter_by(username = username).first() is not None:
+        return jsonify({'error': 'username already exists, choose other one'})
+
+    else:
+        hashed_password = generate_password_hash(password).decode('utf-8')
+        user = Auth(username=username, password=hashed_password)
+        session.add(user)
+        session.commit()
+        session.close()
+        return jsonify({'message': 'success, Welcome oo our system' + username + '!'}), 200
+
+
+@app.route('/login', methods=['POST'])
+def login():
+    session = Session()
+
+    data = request.json
+    username = data['username']
+    password = data['password']
+    print(username + password)
+    user = session.query(Auth).filter_by(username = username).first()
+    print(user)
+    if user is not None:
+        if check_password_hash(user.password, password) is True:
+            return jsonify({'message': 'Welcome again ' + username + '!'}), 200
+        else:
+            return jsonify({'error': 'username or password is incorrect'}), 404
+
+
+    else:
+        return jsonify({'error': 'username or password is incorrect'}), 404
+
+
+
+
+
+############################################################################################################
 # API to get all students
 @app.route('/students', methods=['GET'])
 def get_students():
@@ -86,6 +169,7 @@ def get_courses():
         'instructor_id': course.instructor_id,
         'credits': course.credits
     } for course in courses])
+
 
 
 from flask import request
